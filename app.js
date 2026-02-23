@@ -1,11 +1,13 @@
 /* ========================================
    DataBot – Core Application Logic
-   Excel parsing, smart search, chatbot
+   Excel parsing, Gemini AI chatbot
    ======================================== */
 
 // ===================== GLOBAL STATE =====================
 let excelData = [];
 let columns = [];
+const GEMINI_API_KEY = 'AIzaSyBm-_MptEa5CU9HggioZis9XY4MnReJqao';
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 // ===================== INITIALIZATION =====================
 document.addEventListener('DOMContentLoaded', () => {
@@ -133,24 +135,94 @@ function renderStats() {
     `).join('');
 }
 
-// ===================== CHATBOT ENGINE =====================
-function sendMessage() {
+// ===================== CHATBOT ENGINE (GEMINI AI) =====================
+async function sendMessage() {
     const input = document.getElementById('chatInput');
     const text = input.value.trim();
     if (!text) return;
 
     addMessage(text, 'user');
     input.value = '';
+    input.disabled = true;
+    document.getElementById('sendBtn').disabled = true;
 
     // Show typing indicator
     const typingEl = showTyping();
 
-    // Simulate thinking delay
-    setTimeout(() => {
+    try {
+        const response = await askGemini(text);
         typingEl.remove();
-        const response = processQuery(text);
         addMessage(response, 'bot');
-    }, 600 + Math.random() * 600);
+    } catch (err) {
+        console.error('Gemini API error:', err);
+        typingEl.remove();
+        addMessage('<p>⚠ AI is temporarily unavailable. Using local search instead...</p>' + processQueryLocal(text), 'bot');
+    } finally {
+        input.disabled = false;
+        document.getElementById('sendBtn').disabled = false;
+        input.focus();
+    }
+}
+
+// ===================== GEMINI API CALL =====================
+async function askGemini(question) {
+    // Build data context for Gemini
+    const dataContext = JSON.stringify(excelData, null, 2);
+
+    const systemPrompt = `You are DataBot, a helpful assistant for Mahabyte Employee Data. You answer questions based ONLY on the employee data provided below. 
+
+RULES:
+- Answer based on the data below. Do not make up information.
+- Be concise and friendly. Use emojis sparingly.
+- When listing employees, format as an HTML table with <table class="chat-result-table">, <thead>, <tbody>, <th>, <td> tags.
+- For salary values, format with $ sign and commas (e.g., $85,000).
+- When giving counts or statistics, bold the numbers using <strong> tags.
+- Wrap text responses in <p> tags.
+- If the question is unrelated to the data, politely say you can only help with employee data questions.
+
+EMPLOYEE DATA:
+${dataContext}`;
+
+    const response = await fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            contents: [{
+                parts: [{ text: systemPrompt + '\n\nUser question: ' + question }]
+            }],
+            generationConfig: {
+                temperature: 0.3,
+                maxOutputTokens: 1024
+            }
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!aiText) throw new Error('Empty response from Gemini');
+
+    // Clean up markdown-style formatting to HTML
+    return formatGeminiResponse(aiText);
+}
+
+function formatGeminiResponse(text) {
+    // If Gemini already returned HTML tags, use as-is
+    if (text.includes('<table') || text.includes('<p>') || text.includes('<strong>')) {
+        // Clean any markdown code fences
+        return text.replace(/```html\n?/g, '').replace(/```\n?/g, '');
+    }
+    // Convert markdown-style response to HTML
+    let html = text
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')  // bold
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')               // italic
+        .replace(/\n\n/g, '</p><p>')                         // paragraphs
+        .replace(/\n/g, '<br>');                             // line breaks
+    return '<p>' + html + '</p>';
 }
 
 function askSuggestion(btn) {
@@ -197,140 +269,14 @@ function showTyping() {
     return div;
 }
 
-// ===================== QUERY PROCESSOR =====================
-function processQuery(query) {
+// ===================== LOCAL FALLBACK SEARCH =====================
+function processQueryLocal(query) {
     if (excelData.length === 0) {
-        return '<p>⚠ No data loaded. Please make sure the Excel file is available.</p>';
+        return '<p>No data loaded.</p>';
     }
-
     const q = query.toLowerCase().trim();
 
-    // --- Greeting ---
-    if (/^(hi|hello|hey|good morning|good afternoon|good evening)\b/.test(q)) {
-        return `<p>Hello! 👋 I'm ready to help you explore the employee data.</p>
-                <p>We have <strong>${excelData.length} employees</strong> across <strong>${[...new Set(excelData.map(r => r['Department']))].length} departments</strong>. Ask me anything!</p>`;
-    }
-
-    // --- Total count ---
-    if (/how many (employees|people|records|rows|staff|workers)/.test(q) || /total (employees|count|records)/.test(q) || q === 'count') {
-        return `<p>There are <strong>${excelData.length} employees</strong> in the dataset.</p>`;
-    }
-
-    // --- List all departments ---
-    if (/list.*(department|dept)s?|all.*(department|dept)s?|what.*(department|dept)s?|show.*(department|dept)s?/.test(q)) {
-        const depts = [...new Set(excelData.map(r => r['Department']).filter(Boolean))];
-        const deptCounts = depts.map(d => {
-            const count = excelData.filter(r => r['Department'] === d).length;
-            return `<strong>${d}</strong>: ${count} employee${count > 1 ? 's' : ''}`;
-        });
-        return `<p>📋 Departments (${depts.length}):</p><ul>${deptCounts.map(d => '<li>' + d + '</li>').join('')}</ul>`;
-    }
-
-    // --- List all cities/locations ---
-    if (/list.*(city|cities|location)s?|all.*(city|cities|location)s?|what.*(city|cities|location)s?|show.*(city|cities|location)s?/.test(q)) {
-        const cities = [...new Set(excelData.map(r => r['City']).filter(Boolean))];
-        const cityCounts = cities.map(c => {
-            const count = excelData.filter(r => r['City'] === c).length;
-            return `<strong>${c}</strong>: ${count} employee${count > 1 ? 's' : ''}`;
-        });
-        return `<p>📍 Locations (${cities.length}):</p><ul>${cityCounts.map(c => '<li>' + c + '</li>').join('')}</ul>`;
-    }
-
-    // --- Average salary ---
-    if (/average salary|avg salary|mean salary/.test(q)) {
-        const salaries = excelData.map(r => Number(r['Salary'])).filter(s => !isNaN(s));
-        if (salaries.length) {
-            const avg = Math.round(salaries.reduce((a, b) => a + b, 0) / salaries.length);
-            return `<p>💰 The average salary is <strong>$${avg.toLocaleString()}</strong></p>
-                    <p>Range: $${Math.min(...salaries).toLocaleString()} – $${Math.max(...salaries).toLocaleString()}</p>`;
-        }
-        return '<p>Could not calculate the average salary from the data.</p>';
-    }
-
-    // --- Highest salary ---
-    if (/highest salary|max salary|top salary|most paid|highest paid|top earner/.test(q)) {
-        const sorted = [...excelData].sort((a, b) => Number(b['Salary'] || 0) - Number(a['Salary'] || 0));
-        const top = sorted.slice(0, 3);
-        return `<p>🏆 Top earners:</p>` + buildMiniTable(top, ['Name', 'Role', 'Department', 'Salary']);
-    }
-
-    // --- Lowest salary ---
-    if (/lowest salary|min salary|least paid|lowest paid/.test(q)) {
-        const sorted = [...excelData].sort((a, b) => Number(a['Salary'] || 0) - Number(b['Salary'] || 0));
-        const bottom = sorted.slice(0, 3);
-        return `<p>📉 Lowest salaries:</p>` + buildMiniTable(bottom, ['Name', 'Role', 'Department', 'Salary']);
-    }
-
-    // --- Most experience ---
-    if (/most experience|highest experience|senior|most experienced/.test(q)) {
-        const expCol = columns.find(c => c.toLowerCase().includes('experience'));
-        if (expCol) {
-            const sorted = [...excelData].sort((a, b) => Number(b[expCol] || 0) - Number(a[expCol] || 0));
-            const top = sorted.slice(0, 3);
-            return `<p>🎖 Most experienced employees:</p>` + buildMiniTable(top, ['Name', 'Role', 'Department', expCol]);
-        }
-    }
-
-    // --- Specific person lookup ---
-    const nameMatch = q.match(/(?:who is|about|info|details|show me|tell me about|find)\s+(.+)/);
-    if (nameMatch) {
-        const searchName = nameMatch[1].replace(/[?.,!]/g, '').trim();
-        const matches = excelData.filter(r =>
-            String(r['Name'] || '').toLowerCase().includes(searchName)
-        );
-        if (matches.length > 0) {
-            return `<p>👤 Found ${matches.length} match${matches.length > 1 ? 'es' : ''}:</p>` + buildMiniTable(matches, columns.slice(0, 7));
-        }
-    }
-
-    // --- Filter by department ---
-    const deptMatch = findColumnMatch(q, 'Department');
-    if (deptMatch) {
-        const filtered = excelData.filter(r => String(r['Department'] || '').toLowerCase() === deptMatch.toLowerCase());
-        if (filtered.length > 0) {
-            return `<p>🏢 <strong>${deptMatch}</strong> department (${filtered.length} employee${filtered.length > 1 ? 's' : ''}):</p>` + buildMiniTable(filtered, ['Name', 'Role', 'Salary', 'City']);
-        }
-    }
-
-    // --- Filter by city ---
-    const cityMatch = findColumnMatch(q, 'City');
-    if (cityMatch) {
-        const filtered = excelData.filter(r => String(r['City'] || '').toLowerCase() === cityMatch.toLowerCase());
-        if (filtered.length > 0) {
-            return `<p>📍 Employees in <strong>${cityMatch}</strong> (${filtered.length}):</p>` + buildMiniTable(filtered, ['Name', 'Department', 'Role', 'Salary']);
-        }
-    }
-
-    // --- Filter by role ---
-    const roleMatch = findColumnMatch(q, 'Role');
-    if (roleMatch) {
-        const filtered = excelData.filter(r => String(r['Role'] || '').toLowerCase().includes(roleMatch.toLowerCase()));
-        if (filtered.length > 0) {
-            return `<p>💼 Employees with role matching "<strong>${roleMatch}</strong>" (${filtered.length}):</p>` + buildMiniTable(filtered, ['Name', 'Department', 'Salary', 'City']);
-        }
-    }
-
-    // --- Salary of a specific person ---
-    const salaryOf = q.match(/(?:salary of|salary for|how much does|how much is)\s+(.+?)(?:\s+(?:earn|make|get))?(?:\?|$)/);
-    if (salaryOf) {
-        const searchName = salaryOf[1].replace(/[?.,!'s]/g, '').trim();
-        const matches = excelData.filter(r =>
-            String(r['Name'] || '').toLowerCase().includes(searchName)
-        );
-        if (matches.length > 0) {
-            return matches.map(m => `<p>💰 <strong>${m['Name']}</strong>'s salary is <strong>$${Number(m['Salary']).toLocaleString()}</strong> (${m['Role']}, ${m['Department']})</p>`).join('');
-        }
-    }
-
-    // --- Show all / list all ---
-    if (/show all|list all|all employees|everyone|all data|all records/.test(q)) {
-        if (excelData.length > 10) {
-            return `<p>📋 Showing all <strong>${excelData.length} employees</strong>:</p>` + buildMiniTable(excelData, ['Name', 'Department', 'Role', 'City']);
-        }
-        return `<p>📋 All employees:</p>` + buildMiniTable(excelData, columns.slice(0, 6));
-    }
-
-    // --- Generic keyword search (fallback) ---
+    // Quick keyword search
     const keywords = q.replace(/[?.,!]/g, '').split(/\s+/).filter(w => w.length > 2);
     const matches = excelData.filter(row =>
         keywords.some(kw =>
@@ -340,33 +286,12 @@ function processQuery(query) {
 
     if (matches.length > 0) {
         const displayCols = matches.length <= 5 ? columns.slice(0, 7) : ['Name', 'Department', 'Role', 'City'];
-        return `<p>🔍 Found <strong>${matches.length} result${matches.length > 1 ? 's' : ''}</strong> matching your query:</p>` + buildMiniTable(matches.slice(0, 10), displayCols);
+        return `<p>🔍 Found <strong>${matches.length} result${matches.length > 1 ? 's' : ''}</strong>:</p>` + buildMiniTable(matches.slice(0, 10), displayCols);
     }
-
-    // --- No matches ---
-    return `<p>🤔 I couldn't find results for "<em>${escapeHtml(query)}</em>".</p>
-            <p>Try asking about:</p>
-            <ul>
-                <li>A department (e.g. "Who works in Engineering?")</li>
-                <li>A city (e.g. "Show employees in Mumbai")</li>
-                <li>A person (e.g. "Tell me about Rahul")</li>
-                <li>Salaries (e.g. "What is the average salary?")</li>
-                <li>Statistics (e.g. "How many employees are there?")</li>
-            </ul>`;
+    return '<p>No results found. Try different keywords.</p>';
 }
 
 // ===================== HELPERS =====================
-function findColumnMatch(query, colName) {
-    const values = [...new Set(excelData.map(r => r[colName]).filter(Boolean))];
-    const q = query.toLowerCase();
-    for (const val of values) {
-        if (q.includes(val.toLowerCase())) {
-            return val;
-        }
-    }
-    return null;
-}
-
 function buildMiniTable(data, cols) {
     const availCols = cols.filter(c => columns.includes(c));
     if (availCols.length === 0) return '<p>No matching columns found.</p>';
