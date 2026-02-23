@@ -684,18 +684,18 @@ tbody tr:nth-child(even) {
     background: var(--text-secondary);
 }
 
-/* --- Brand Footer --- */
-.brand-footer {
+/* --- Brand Banner --- */
+.brand-banner {
     text-align: center;
-    padding: 20px 0 10px;
-    margin-top: 12px;
+    padding: 14px 0 6px;
+    margin-bottom: 4px;
 }
 
 .brand-text {
-    font-size: 1.6rem;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 2rem;
     font-weight: 700;
-    letter-spacing: 3px;
-    text-transform: uppercase;
+    letter-spacing: 4px;
     background: linear-gradient(135deg, #f97316, #ec4899, #8b5cf6, #06b6d4, #f97316);
     background-size: 300% 300%;
     -webkit-background-clip: text;
@@ -703,7 +703,6 @@ tbody tr:nth-child(even) {
     background-clip: text;
     animation: gradientShift 4s ease infinite;
     filter: drop-shadow(0 0 20px rgba(139, 92, 246, 0.3));
-    position: relative;
 }
 
 @keyframes gradientShift {
