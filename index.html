@@ -1,15 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DataBot – Excel Data Chatbot</title>
-    <meta name="description" content="Ask questions about your Excel data using an intelligent chatbot. View, search, and explore your data interactively.">
+    <meta name="description"
+        content="Ask questions about your Excel data using an intelligent chatbot. View, search, and explore your data interactively.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <!-- Animated background particles -->
     <div class="bg-particles" id="bgParticles"></div>
@@ -20,7 +23,8 @@
         <header class="app-header">
             <div class="logo">
                 <div class="logo-icon">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
                         <line x1="9" y1="9" x2="15" y2="9"></line>
                         <line x1="12" y1="6" x2="12" y2="12"></line>
@@ -31,11 +35,19 @@
             </div>
             <nav class="tab-nav">
                 <button class="tab-btn active" data-tab="data" id="tabData">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <line x1="3" y1="9" x2="21" y2="9" />
+                        <line x1="3" y1="15" x2="21" y2="15" />
+                        <line x1="9" y1="3" x2="9" y2="21" />
+                        <line x1="15" y1="3" x2="15" y2="21" />
+                    </svg>
                     <span>Data View</span>
                 </button>
                 <button class="tab-btn" data-tab="chat" id="tabChat">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    </svg>
                     <span>Chatbot</span>
                     <span class="pulse-dot"></span>
                 </button>
@@ -51,7 +63,11 @@
                 </div>
                 <div class="data-actions">
                     <div class="search-box">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="11" cy="11" r="8" />
+                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        </svg>
                         <input type="text" id="tableSearch" placeholder="Search table..." autocomplete="off">
                     </div>
                 </div>
@@ -77,12 +93,18 @@
                                 <p><strong>Hello! I'm DataBot</strong> 👋</p>
                                 <p>I can answer questions about your employee data. Try asking me things like:</p>
                                 <div class="suggestions">
-                                    <button class="suggestion-chip" onclick="askSuggestion(this)">How many employees are there?</button>
-                                    <button class="suggestion-chip" onclick="askSuggestion(this)">Who works in Engineering?</button>
-                                    <button class="suggestion-chip" onclick="askSuggestion(this)">What is the average salary?</button>
-                                    <button class="suggestion-chip" onclick="askSuggestion(this)">Show employees in Bangalore</button>
-                                    <button class="suggestion-chip" onclick="askSuggestion(this)">Who has the highest salary?</button>
-                                    <button class="suggestion-chip" onclick="askSuggestion(this)">List all departments</button>
+                                    <button class="suggestion-chip" onclick="askSuggestion(this)">How many employees are
+                                        there?</button>
+                                    <button class="suggestion-chip" onclick="askSuggestion(this)">Who works in
+                                        Engineering?</button>
+                                    <button class="suggestion-chip" onclick="askSuggestion(this)">What is the average
+                                        salary?</button>
+                                    <button class="suggestion-chip" onclick="askSuggestion(this)">Show employees in
+                                        Bangalore</button>
+                                    <button class="suggestion-chip" onclick="askSuggestion(this)">Who has the highest
+                                        salary?</button>
+                                    <button class="suggestion-chip" onclick="askSuggestion(this)">List all
+                                        departments</button>
                                 </div>
                             </div>
                             <span class="message-time">Just now</span>
@@ -93,16 +115,26 @@
                     <div class="chat-input-wrapper">
                         <input type="text" id="chatInput" placeholder="Ask me about the data..." autocomplete="off">
                         <button id="sendBtn" onclick="sendMessage()">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13" />
+                                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                            </svg>
                         </button>
                     </div>
                 </div>
             </div>
         </section>
+
+        <!-- Branding Footer -->
+        <footer class="brand-footer">
+            <span class="brand-text">mahabyte</span>
+        </footer>
     </div>
 
     <!-- SheetJS CDN -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     <script src="app.js"></script>
 </body>
+
 </html>
