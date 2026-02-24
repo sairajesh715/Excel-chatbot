@@ -146,7 +146,7 @@ console.log('DataBot ' + APP_VERSION + ' loaded');
 function processQuery(query) {
     if (excelData.length === 0) return p('⚠ No data loaded.');
 
-    const q = query.toLowerCase().trim();
+    const q = query.toLowerCase().trim().replace(/\s+/g, ' ');
     console.log('[DataBot] Query:', q, '| Data rows:', excelData.length);
     const words = q.replace(/[?.,!'"]/g, '').split(/\s+/);
 
