@@ -178,6 +178,7 @@ function processQuery(query) {
     const mentionedPeople = findMentionedPeople(q);
 
     if (mentionedPeople.length >= 2 && match(q, ['sum', 'total', 'combined', 'add', 'together', 'plus', 'both', 'salary', 'earn', 'pay', 'income'])) {
+        console.log('[DataBot] HIT: Person-specific sum');
         const salaries = mentionedPeople.map(p => ({ name: p['Name'], salary: num(p, 'Salary') }));
         const total = salaries.reduce((a, b) => a + b.salary, 0);
         let html = p(`💰 Combined salary of <strong>${mentionedPeople.length} employees</strong>:`);
@@ -280,6 +281,7 @@ function processQuery(query) {
 
     // === TOTAL SALARY (with optional filter) ===
     if (mentionedPeople.length === 0 && match(q, ['total salary', 'sum salary', 'sum of salary', 'total of salary', 'combined salary', 'salary total', 'total salaries', 'sum of all salaries', 'total pay', 'payroll'])) {
+        console.log('[DataBot] HIT: Total salary');
         const dept = findValue(q, 'Department');
         const city = findValue(q, 'City');
         let subset = excelData;
@@ -335,7 +337,9 @@ function processQuery(query) {
     }
 
     // === HIGHEST / TOP SALARY ===
+    console.log('[DataBot] Checking: highest salary. match result:', match(q, ['highest salary']));
     if (match(q, ['highest salary', 'max salary', 'top salary', 'most paid', 'highest paid', 'top earner', 'maximum salary', 'best paid', 'highest earning', 'who earns the most', 'who makes the most'])) {
+        console.log('[DataBot] HIT: Highest salary');
         const sorted = [...excelData].sort((a, b) => num(b, 'Salary') - num(a, 'Salary'));
         const top = sorted.slice(0, 5);
         return p('🏆 Top earners:') + miniTable(top, ['Name', 'Department', 'Role', 'Salary', 'City']);
@@ -780,6 +784,7 @@ function processQuery(query) {
     }
 
     // ===================== SMART AUTO-DETECT (bare input) =====================
+    console.log('[DataBot] Reached auto-detect section (no handler matched above)');
     // If user just types a name, city, department, role, ID, email, year, etc.
 
     // --- EMPLOYEE ID MATCH (e.g. "EMP001") ---
