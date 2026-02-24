@@ -538,6 +538,219 @@ function processQuery(query) {
         return p('You\'re welcome! 😊 Feel free to ask me anything else about the data anytime.');
     }
 
+    // ===================== SQL-LIKE QUERY ENGINE =====================
+
+    // --- GROUP BY ---
+    const groupByMatch = q.match(/(?:group\s*by|grouped\s*by|breakdown\s*by|per|by each|for each|split\s*by|categorize\s*by|category)\s+(department|city|role|status)/i);
+    if (groupByMatch || match(q, ['group by', 'grouped by', 'breakdown by'])) {
+        let groupCol = null;
+        if (groupByMatch) {
+            groupCol = resolveColName(groupByMatch[1]);
+        } else {
+            // Try to detect the column
+            for (const col of ['Department', 'City', 'Role', 'Status']) {
+                if (q.includes(col.toLowerCase())) { groupCol = col; break; }
+            }
+        }
+        if (groupCol) {
+            const groups = unique(groupCol);
+            // Determine what aggregation
+            const wantSum = match(q, ['sum', 'total']);
+            const wantAvg = match(q, ['avg', 'average', 'mean']);
+            const wantMax = match(q, ['max', 'highest', 'maximum', 'top']);
+            const wantMin = match(q, ['min', 'lowest', 'minimum']);
+            const wantCount = match(q, ['count', 'how many', 'number']);
+
+            const data = groups.map(g => {
+                const emps = filterBy(groupCol, g);
+                const sals = emps.map(r => num(r, 'Salary')).filter(s => s > 0);
+                const row = { [groupCol]: g, Count: emps.length };
+                if (wantSum || (!wantAvg && !wantMax && !wantMin && !wantCount)) {
+                    row['Total Salary'] = '$' + sals.reduce((a, b) => a + b, 0).toLocaleString();
+                }
+                if (wantAvg || (!wantSum && !wantMax && !wantMin && !wantCount)) {
+                    row['Avg Salary'] = '$' + (sals.length ? Math.round(sals.reduce((a, b) => a + b, 0) / sals.length) : 0).toLocaleString();
+                }
+                if (wantMax) row['Max Salary'] = '$' + (sals.length ? Math.max(...sals) : 0).toLocaleString();
+                if (wantMin) row['Min Salary'] = '$' + (sals.length ? Math.min(...sals) : 0).toLocaleString();
+                return row;
+            });
+
+            // Sort if requested
+            if (match(q, ['order by salary', 'sort by salary', 'order by avg', 'sort by avg', 'descending', 'desc'])) {
+                data.sort((a, b) => parseInt((b['Avg Salary'] || b['Total Salary'] || '0').replace(/[$,]/g, '')) - parseInt((a['Avg Salary'] || a['Total Salary'] || '0').replace(/[$,]/g, '')));
+            }
+
+            return p(`📊 Group by <strong>${groupCol}</strong>:`) + objTable(data);
+        }
+    }
+
+    // --- ORDER BY / SORT BY ---
+    const orderByMatch = q.match(/(?:order\s*by|sort\s*by|sorted\s*by|arrange\s*by|rank\s*by)\s+(salary|name|experience|department|city|role|join\s*date|email)/i);
+    if (orderByMatch) {
+        let col = resolveColName(orderByMatch[1]);
+        const isDesc = match(q, ['desc', 'descending', 'high to low', 'highest first', 'top', 'most']);
+        const isAsc = match(q, ['asc', 'ascending', 'low to high', 'lowest first', 'least']);
+        const descending = isDesc || (!isAsc && (col === 'Salary' || col === findExpCol()));
+
+        let sorted;
+        const numCols = ['Salary'];
+        const expCol = findExpCol();
+        if (expCol) numCols.push(expCol);
+
+        if (numCols.includes(col)) {
+            sorted = [...excelData].sort((a, b) => descending ? num(b, col) - num(a, col) : num(a, col) - num(b, col));
+        } else {
+            sorted = [...excelData].sort((a, b) => {
+                const av = String(a[col] || ''), bv = String(b[col] || '');
+                return descending ? bv.localeCompare(av) : av.localeCompare(bv);
+            });
+        }
+
+        // Apply TOP N / LIMIT
+        const limitMatch = q.match(/(?:top|first|limit|show)\s+(\d+)/);
+        const limit = limitMatch ? parseInt(limitMatch[1]) : sorted.length;
+        const result = sorted.slice(0, limit);
+        const dir = descending ? 'descending ↓' : 'ascending ↑';
+
+        return p(`📋 Ordered by <strong>${col}</strong> (${dir})${limit < sorted.length ? `, showing top ${limit}` : ''}:`) +
+            miniTable(result, ['Name', 'Department', 'Role', 'Salary', 'City']);
+    }
+
+    // --- TOP N / BOTTOM N ---
+    const topNMatch = q.match(/(?:top|first|best|highest)\s+(\d+)\s*(?:employees?|people|earners?|paid)?(?:\s+(?:by|in|from)\s+(\w+))?/);
+    if (topNMatch) {
+        const n = parseInt(topNMatch[1]);
+        let subset = excelData;
+        const filterCol = topNMatch[2] ? resolveColName(topNMatch[2]) : null;
+        const filterVal = filterCol ? findValue(q, filterCol) : null;
+        if (filterVal) subset = filterBy(filterCol, filterVal);
+
+        const sorted = [...subset].sort((a, b) => num(b, 'Salary') - num(a, 'Salary'));
+        return p(`🏆 Top ${n} earners${filterVal ? ' in <strong>' + filterVal + '</strong>' : ''}:`) +
+            miniTable(sorted.slice(0, n), ['Name', 'Department', 'Role', 'Salary', 'City']);
+    }
+    const bottomNMatch = q.match(/(?:bottom|last|lowest|least)\s+(\d+)\s*(?:employees?|people|earners?|paid)?/);
+    if (bottomNMatch) {
+        const n = parseInt(bottomNMatch[1]);
+        const sorted = [...excelData].sort((a, b) => num(a, 'Salary') - num(b, 'Salary'));
+        return p(`📉 Bottom ${n} earners:`) +
+            miniTable(sorted.slice(0, n), ['Name', 'Department', 'Role', 'Salary', 'City']);
+    }
+
+    // --- WHERE clause (multi-condition) ---
+    const whereMatch = q.match(/(?:where|filter|show\s+(?:me\s+)?(?:employees?|people|records?)\s+(?:where|with|whose|having))\s+(.+)/i);
+    if (whereMatch) {
+        const conditions = whereMatch[1];
+        let result = [...excelData];
+
+        // Parse conditions: "salary > 80000 and department = engineering"
+        const condParts = conditions.split(/\s+and\s+/i);
+        for (const cond of condParts) {
+            result = applyCondition(result, cond.trim());
+        }
+
+        if (result.length > 0) {
+            return p(`🔍 Found <strong>${result.length} employees</strong> matching your conditions:`) +
+                miniTable(result, ['Name', 'Department', 'Role', 'Salary', 'City']);
+        }
+        return p('No employees match those conditions.');
+    }
+
+    // --- DISTINCT ---
+    if (match(q, ['distinct', 'unique', 'unique values', 'distinct values'])) {
+        for (const col of columns) {
+            if (q.includes(col.toLowerCase()) || q.includes(col.toLowerCase().replace(/[()]/g, ''))) {
+                const vals = unique(col);
+                return p(`📋 <strong>${vals.length}</strong> unique values in <strong>${col}</strong>:`) +
+                    '<ul>' + vals.map(v => `<li>${esc(String(v))}</li>`).join('') + '</ul>';
+            }
+        }
+        // Default: show all columns with their distinct counts
+        const data = columns.map(c => ({
+            Column: c,
+            'Unique Values': unique(c).length,
+            Sample: unique(c).slice(0, 3).join(', ')
+        }));
+        return p('📋 Distinct value counts per column:') + objTable(data);
+    }
+
+    // --- COUNT WHERE ---
+    if (match(q, ['count where', 'how many where', 'count of', 'number where'])) {
+        const afterCount = q.replace(/.*(?:count\s+where|how\s+many\s+where|count\s+of|number\s+where)\s*/i, '');
+        if (afterCount) {
+            const result = applyCondition([...excelData], afterCount);
+            return p(`📊 <strong>${result.length}</strong> employees match your condition.`);
+        }
+    }
+
+    // --- SUM/AVG/MIN/MAX of a column with optional WHERE ---
+    const aggMatch = q.match(/(?:sum|total|average|avg|minimum|min|maximum|max)\s+(?:of\s+)?(?:the\s+)?(salary|experience)/i);
+    if (aggMatch) {
+        const aggType = q.match(/(sum|total|average|avg|minimum|min|maximum|max)/i)[1].toLowerCase();
+        let col = resolveColName(aggMatch[1]);
+        let subset = excelData;
+        let label = '';
+
+        // Check for WHERE-like filter
+        const dept = findValue(q, 'Department');
+        const city = findValue(q, 'City');
+        const role = findValue(q, 'Role');
+        if (dept) { subset = filterBy('Department', dept); label = ` in <strong>${dept}</strong>`; }
+        else if (city) { subset = filterBy('City', city); label = ` in <strong>${city}</strong>`; }
+        else if (role) { subset = subset.filter(r => String(r['Role'] || '').toLowerCase().includes(role.toLowerCase())); label = ` for <strong>${role}</strong>`; }
+
+        const vals = subset.map(r => num(r, col)).filter(v => v > 0);
+        if (vals.length === 0) return p('No numeric data found for that query.');
+
+        let result, aggLabel;
+        if (['sum', 'total'].includes(aggType)) {
+            result = vals.reduce((a, b) => a + b, 0); aggLabel = 'Sum';
+        } else if (['average', 'avg'].includes(aggType)) {
+            result = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length); aggLabel = 'Average';
+        } else if (['minimum', 'min'].includes(aggType)) {
+            result = Math.min(...vals); aggLabel = 'Minimum';
+        } else {
+            result = Math.max(...vals); aggLabel = 'Maximum';
+        }
+
+        const display = col === 'Salary' ? '$' + result.toLocaleString() : result.toLocaleString();
+        return p(`📊 <strong>${aggLabel}</strong> of ${col}${label}: <strong>${display}</strong> (${vals.length} employees)`);
+    }
+
+    // --- HAVING (group by + condition) ---
+    if (match(q, ['having', 'departments with more than', 'cities with more than', 'departments having', 'cities having'])) {
+        const havingNum = q.match(/(?:more than|greater than|over|above|at least|>=?)\s*(\d+)/);
+        if (havingNum) {
+            const threshold = parseInt(havingNum[1]);
+            const isAboutSalary = match(q, ['salary', 'earn', 'pay']);
+
+            for (const col of ['Department', 'City']) {
+                if (q.includes(col.toLowerCase()) || q.includes(col.toLowerCase() + 's')) {
+                    const groups = unique(col);
+                    let filtered;
+                    if (isAboutSalary) {
+                        filtered = groups.filter(g => {
+                            const emps = filterBy(col, g);
+                            const avg = emps.map(r => num(r, 'Salary')).filter(s => s > 0);
+                            return avg.length && (avg.reduce((a, b) => a + b, 0) / avg.length) > threshold;
+                        });
+                        const data = filtered.map(g => {
+                            const emps = filterBy(col, g);
+                            const sals = emps.map(r => num(r, 'Salary')).filter(s => s > 0);
+                            return { [col]: g, Employees: emps.length, 'Avg Salary': '$' + Math.round(sals.reduce((a, b) => a + b, 0) / sals.length).toLocaleString() };
+                        });
+                        return p(`📊 ${col}s with average salary above $${threshold.toLocaleString()}:`) + objTable(data);
+                    } else {
+                        filtered = groups.filter(g => filterBy(col, g).length > threshold);
+                        const data = filtered.map(g => ({ [col]: g, Employees: filterBy(col, g).length }));
+                        return p(`📊 ${col}s with more than ${threshold} employees:`) + objTable(data);
+                    }
+                }
+            }
+        }
+    }
+
     // === GENERIC KEYWORD SEARCH (SMART FALLBACK) ===
     const keywords = q.replace(/[?.,!'"]/g, '').split(/\s+/).filter(w => w.length > 2 && !['the', 'and', 'for', 'are', 'was', 'what', 'who', 'how', 'can', 'you', 'show', 'tell', 'give', 'get', 'from', 'with', 'this', 'that', 'have', 'has', 'does', 'will'].includes(w));
 
@@ -554,14 +767,15 @@ function processQuery(query) {
 
     // === NO MATCH ===
     return p(`🤔 I couldn't find results for "<em>${esc(query)}</em>".`) +
-        p('Try asking about:') +
+        p('Try asking:') +
         '<ul>' +
-        '<li>"What is the total salary?"</li>' +
-        '<li>"Show employees in Engineering"</li>' +
-        '<li>"Who has the highest salary?"</li>' +
-        '<li>"Tell me about Guru Charan"</li>' +
-        '<li>"Compare departments"</li>' +
-        '<li>"Summary" for a data overview</li>' +
+        '<li>"Group by department" – see salary stats per department</li>' +
+        '<li>"Sort by salary descending" – order all employees</li>' +
+        '<li>"Top 5 earners" – highest paid employees</li>' +
+        '<li>"Where salary > 80000 and city = Hyderabad"</li>' +
+        '<li>"Sum of salary of Guru Charan and Sai Rajesh"</li>' +
+        '<li>"Distinct departments" – unique values</li>' +
+        '<li>"Summary" – full data overview</li>' +
         '</ul>';
 }
 
@@ -660,6 +874,90 @@ function findMentionedPeople(query) {
         }
     }
     return found;
+}
+
+function resolveColName(input) {
+    const lower = input.toLowerCase().replace(/\s+/g, '');
+    const map = {
+        'salary': 'Salary', 'pay': 'Salary', 'compensation': 'Salary', 'income': 'Salary', 'wage': 'Salary',
+        'name': 'Name', 'employee': 'Name',
+        'department': 'Department', 'dept': 'Department', 'team': 'Department',
+        'city': 'City', 'location': 'City', 'place': 'City',
+        'role': 'Role', 'position': 'Role', 'jobtitle': 'Role', 'title': 'Role', 'designation': 'Role',
+        'email': 'Email', 'mail': 'Email',
+        'status': 'Status',
+        'experience': null, // Will resolve dynamically
+        'joindate': null,
+    };
+    if (lower === 'experience' || lower === 'exp') {
+        return findExpCol() || 'Experience (Years)';
+    }
+    if (lower === 'joindate' || lower === 'date') {
+        return columns.find(c => c.toLowerCase().includes('join') || c.toLowerCase().includes('date')) || 'Join Date';
+    }
+    // Direct lookup
+    if (map[lower]) return map[lower];
+    // Try matching column names
+    const found = columns.find(c => c.toLowerCase().includes(lower));
+    if (found) return found;
+    // Default: capitalize first letter
+    return input.charAt(0).toUpperCase() + input.slice(1);
+}
+
+function applyCondition(data, condition) {
+    const cond = condition.trim().toLowerCase();
+
+    // Pattern: column operator value
+    // e.g. "salary > 80000", "department = engineering", "name contains guru"
+    const operators = [
+        { regex: /(.+?)\s*>=\s*(.+)/, op: '>=' },
+        { regex: /(.+?)\s*<=\s*(.+)/, op: '<=' },
+        { regex: /(.+?)\s*!=\s*(.+)/, op: '!=' },
+        { regex: /(.+?)\s*<>\s*(.+)/, op: '!=' },
+        { regex: /(.+?)\s*>\s*(.+)/, op: '>' },
+        { regex: /(.+?)\s*<\s*(.+)/, op: '<' },
+        { regex: /(.+?)\s*=\s*(.+)/, op: '=' },
+        { regex: /(.+?)\s+(?:is|equals?)\s+(.+)/, op: '=' },
+        { regex: /(.+?)\s+(?:contains?|like|includes?|has)\s+(.+)/, op: 'contains' },
+        { regex: /(.+?)\s+(?:not|isn't|isnt)\s+(.+)/, op: '!=' },
+        { regex: /(.+?)\s+(?:starts?\s*with)\s+(.+)/, op: 'startswith' },
+        { regex: /(.+?)\s+(?:ends?\s*with)\s+(.+)/, op: 'endswith' },
+    ];
+
+    for (const { regex, op } of operators) {
+        const m = cond.match(regex);
+        if (m) {
+            const col = resolveColName(m[1].trim());
+            const rawVal = m[2].trim().replace(/['"]/g, '').replace(/[$,]/g, '');
+
+            return data.filter(row => {
+                const cellVal = row[col];
+                if (cellVal === undefined) return false;
+                const cellStr = String(cellVal).toLowerCase();
+                const cellNum = Number(String(cellVal).replace(/[$,]/g, ''));
+                const valNum = Number(rawVal);
+                const valStr = rawVal.toLowerCase();
+
+                switch (op) {
+                    case '>': return !isNaN(cellNum) && !isNaN(valNum) && cellNum > valNum;
+                    case '<': return !isNaN(cellNum) && !isNaN(valNum) && cellNum < valNum;
+                    case '>=': return !isNaN(cellNum) && !isNaN(valNum) && cellNum >= valNum;
+                    case '<=': return !isNaN(cellNum) && !isNaN(valNum) && cellNum <= valNum;
+                    case '=': return !isNaN(cellNum) && !isNaN(valNum) ? cellNum === valNum : cellStr === valStr;
+                    case '!=': return !isNaN(cellNum) && !isNaN(valNum) ? cellNum !== valNum : cellStr !== valStr;
+                    case 'contains': return cellStr.includes(valStr);
+                    case 'startswith': return cellStr.startsWith(valStr);
+                    case 'endswith': return cellStr.endsWith(valStr);
+                    default: return true;
+                }
+            });
+        }
+    }
+
+    // If no operator found, try contains for any column
+    return data.filter(row =>
+        columns.some(col => String(row[col] || '').toLowerCase().includes(cond))
+    );
 }
 
 function match(q, patterns) {
