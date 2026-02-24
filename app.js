@@ -156,25 +156,113 @@ function processQuery(query) {
     if (/^(help|what can you|how to|commands|features)/.test(q)) {
         return p('🤖 Here are things you can ask me:') +
             '<ul>' +
-            '<li>How many employees are there?</li>' +
-            '<li>What is the total/average salary?</li>' +
-            '<li>Who has the highest/lowest salary?</li>' +
-            '<li>Show employees in [city/department]</li>' +
-            '<li>Tell me about [person name]</li>' +
-            '<li>Compare departments by salary</li>' +
-            '<li>Who joined in [year]?</li>' +
-            '<li>List all departments/cities/roles</li>' +
-            '<li>Who earns more than $80,000?</li>' +
-            '<li>Show active/inactive employees</li>' +
+            '<li><strong>Math:</strong> "Sum of salary of Guru Charan and Sai Rajesh"</li>' +
+            '<li><strong>Compare:</strong> "Compare Guru Charan vs Guru Dayal"</li>' +
+            '<li><strong>Total:</strong> "What is the total salary?"</li>' +
+            '<li><strong>Average:</strong> "Average salary in Engineering"</li>' +
+            '<li><strong>Salary range:</strong> "Who earns more than $80,000?"</li>' +
+            '<li><strong>Person info:</strong> "Tell me about Guru Charan"</li>' +
+            '<li><strong>Filter:</strong> "Show employees in Hyderabad"</li>' +
+            '<li><strong>Compare teams:</strong> "Compare departments"</li>' +
+            '<li><strong>Rankings:</strong> "Who has the highest salary?"</li>' +
+            '<li><strong>Overview:</strong> "Summary"</li>' +
             '</ul>';
     }
 
-    // === TOTAL SALARY ===
+    // === PERSON-SPECIFIC MATH (sum of salary of X and Y) ===
+    // Detect names mentioned in the query
+    const mentionedPeople = findMentionedPeople(q);
+
+    if (mentionedPeople.length >= 2 && match(q, ['sum', 'total', 'combined', 'add', 'together', 'plus', 'both'])) {
+        const salaries = mentionedPeople.map(p => ({ name: p['Name'], salary: num(p, 'Salary') }));
+        const total = salaries.reduce((a, b) => a + b.salary, 0);
+        let html = p(`💰 Combined salary of <strong>${mentionedPeople.length} employees</strong>:`);
+        html += '<ul>' + salaries.map(s => `<li><strong>${esc(s.name)}</strong>: $${s.salary.toLocaleString()}</li>`).join('') + '</ul>';
+        html += p(`<strong>Total: $${total.toLocaleString()}</strong>`);
+        return html;
+    }
+
+    // Compare two people
+    if (mentionedPeople.length >= 2 && match(q, ['compare', 'difference', 'diff', 'vs', 'versus', 'more than', 'less than', 'between', 'who earns more', 'who makes more', 'higher', 'lower'])) {
+        const p1 = mentionedPeople[0], p2 = mentionedPeople[1];
+        const s1 = num(p1, 'Salary'), s2 = num(p2, 'Salary');
+        const diff = Math.abs(s1 - s2);
+        const higher = s1 >= s2 ? p1 : p2;
+        const lower = s1 < s2 ? p1 : p2;
+        let html = p(`📊 Salary comparison:`);
+        html += '<ul>';
+        html += `<li><strong>${esc(p1['Name'])}</strong>: $${s1.toLocaleString()} (${p1['Role']})</li>`;
+        html += `<li><strong>${esc(p2['Name'])}</strong>: $${s2.toLocaleString()} (${p2['Role']})</li>`;
+        html += '</ul>';
+        if (s1 === s2) {
+            html += p(`They both earn the same salary! 🤝`);
+        } else {
+            html += p(`💡 <strong>${esc(higher['Name'])}</strong> earns <strong>$${diff.toLocaleString()}</strong> more than <strong>${esc(lower['Name'])}</strong>`);
+            html += p(`That's a <strong>${((diff / Math.min(s1, s2)) * 100).toFixed(1)}%</strong> difference.`);
+        }
+        return html;
+    }
+
+    // Average salary of mentioned people
+    if (mentionedPeople.length >= 2 && match(q, ['average', 'avg', 'mean'])) {
+        const salaries = mentionedPeople.map(p => ({ name: p['Name'], salary: num(p, 'Salary') }));
+        const avg = Math.round(salaries.reduce((a, b) => a + b.salary, 0) / salaries.length);
+        let html = p(`💰 Average salary of <strong>${mentionedPeople.length} employees</strong>:`);
+        html += '<ul>' + salaries.map(s => `<li><strong>${esc(s.name)}</strong>: $${s.salary.toLocaleString()}</li>`).join('') + '</ul>';
+        html += p(`<strong>Average: $${avg.toLocaleString()}</strong>`);
+        return html;
+    }
+
+    // Min/Max of mentioned people
+    if (mentionedPeople.length >= 2 && match(q, ['highest', 'max', 'maximum', 'most', 'top', 'best'])) {
+        const sorted = [...mentionedPeople].sort((a, b) => num(b, 'Salary') - num(a, 'Salary'));
+        return p(`🏆 Among the mentioned employees, <strong>${esc(sorted[0]['Name'])}</strong> earns the most at <strong>$${num(sorted[0], 'Salary').toLocaleString()}</strong>`) +
+            miniTable(sorted, ['Name', 'Department', 'Role', 'Salary']);
+    }
+    if (mentionedPeople.length >= 2 && match(q, ['lowest', 'min', 'minimum', 'least'])) {
+        const sorted = [...mentionedPeople].sort((a, b) => num(a, 'Salary') - num(b, 'Salary'));
+        return p(`📉 Among the mentioned employees, <strong>${esc(sorted[0]['Name'])}</strong> earns the least at <strong>$${num(sorted[0], 'Salary').toLocaleString()}</strong>`) +
+            miniTable(sorted, ['Name', 'Department', 'Role', 'Salary']);
+    }
+
+    // Single person salary query
+    if (mentionedPeople.length === 1) {
+        const person = mentionedPeople[0];
+        const expCol = findExpCol();
+        if (match(q, ['salary', 'earn', 'make', 'pay', 'paid', 'compensation', 'income'])) {
+            return p(`💰 <strong>${esc(person['Name'])}</strong>'s salary is <strong>$${num(person, 'Salary').toLocaleString()}</strong>`) +
+                p(`Role: ${person['Role']} | Department: ${person['Department']} | City: ${person['City']}`);
+        }
+        if (match(q, ['experience', 'years', 'tenure', 'how long'])) {
+            if (expCol) {
+                return p(`📈 <strong>${esc(person['Name'])}</strong> has <strong>${person[expCol]} years</strong> of experience`) +
+                    p(`Role: ${person['Role']} | Department: ${person['Department']}`);
+            }
+        }
+        if (match(q, ['department', 'team', 'which department', 'what department'])) {
+            return p(`🏢 <strong>${esc(person['Name'])}</strong> works in the <strong>${person['Department']}</strong> department as a <strong>${person['Role']}</strong>`);
+        }
+        if (match(q, ['email', 'mail', 'contact'])) {
+            return p(`📧 <strong>${esc(person['Name'])}</strong>'s email is <strong>${person['Email'] || 'N/A'}</strong>`);
+        }
+        if (match(q, ['city', 'location', 'where', 'based'])) {
+            return p(`📍 <strong>${esc(person['Name'])}</strong> is based in <strong>${person['City']}</strong>`);
+        }
+    }
+
+    // === TOTAL SALARY (with optional filter) ===
     if (match(q, ['total salary', 'sum salary', 'sum of salary', 'total of salary', 'combined salary', 'salary total', 'total salaries', 'sum of all salaries', 'total pay', 'payroll'])) {
-        const salaries = numericCol('Salary');
+        const dept = findValue(q, 'Department');
+        const city = findValue(q, 'City');
+        let subset = excelData;
+        let label = 'all employees';
+        if (dept) { subset = filterBy('Department', dept); label = `<strong>${dept}</strong> department`; }
+        else if (city) { subset = filterBy('City', city); label = `<strong>${city}</strong>`; }
+
+        const salaries = subset.map(r => Number(r['Salary'])).filter(s => !isNaN(s));
         if (salaries.length) {
             const total = salaries.reduce((a, b) => a + b, 0);
-            return p(`💰 The <strong>total salary</strong> of all ${salaries.length} employees is <strong>$${total.toLocaleString()}</strong>`);
+            return p(`💰 The <strong>total salary</strong> of ${label} (${salaries.length} employees) is <strong>$${total.toLocaleString()}</strong>`);
         }
         return p('Could not calculate total salary.');
     }
@@ -544,6 +632,34 @@ function findValue(query, colName) {
 
 function findExpCol() {
     return columns.find(c => c.toLowerCase().includes('experience'));
+}
+
+function findMentionedPeople(query) {
+    const q = query.toLowerCase();
+    const found = [];
+    const usedIndices = new Set();
+    // Sort names by length (longest first) to match full names before partial
+    const sortedByLength = [...excelData].sort((a, b) => String(b['Name'] || '').length - String(a['Name'] || '').length);
+    for (const row of sortedByLength) {
+        const name = String(row['Name'] || '').toLowerCase();
+        if (!name) continue;
+        const idx = excelData.indexOf(row);
+        if (usedIndices.has(idx)) continue;
+        // Check full name
+        if (q.includes(name)) { found.push(row); usedIndices.add(idx); continue; }
+        // Check individual parts of name (first name / last name)
+        const parts = name.split(/\s+/);
+        for (const part of parts) {
+            if (part.length >= 3 && q.includes(part)) {
+                // Make sure this part isn't a common word
+                const commonWords = ['the', 'and', 'for', 'are', 'salary', 'total', 'sum', 'average', 'who', 'what', 'how'];
+                if (!commonWords.includes(part)) {
+                    found.push(row); usedIndices.add(idx); break;
+                }
+            }
+        }
+    }
+    return found;
 }
 
 function match(q, patterns) {
