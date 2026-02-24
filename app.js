@@ -173,7 +173,7 @@ function processQuery(query) {
     // Detect names mentioned in the query
     const mentionedPeople = findMentionedPeople(q);
 
-    if (mentionedPeople.length >= 2 && match(q, ['sum', 'total', 'combined', 'add', 'together', 'plus', 'both'])) {
+    if (mentionedPeople.length >= 2 && match(q, ['sum', 'total', 'combined', 'add', 'together', 'plus', 'both', 'salary', 'earn', 'pay', 'income'])) {
         const salaries = mentionedPeople.map(p => ({ name: p['Name'], salary: num(p, 'Salary') }));
         const total = salaries.reduce((a, b) => a + b.salary, 0);
         let html = p(`💰 Combined salary of <strong>${mentionedPeople.length} employees</strong>:`);
@@ -250,8 +250,32 @@ function processQuery(query) {
         }
     }
 
+    // If 2+ people mentioned but no specific handler matched, show their details
+    if (mentionedPeople.length >= 2) {
+        const salaries = mentionedPeople.map(p => ({ name: p['Name'], salary: num(p, 'Salary') }));
+        const total = salaries.reduce((a, b) => a + b.salary, 0);
+        const avg = Math.round(total / salaries.length);
+        let html = p(`👥 Found <strong>${mentionedPeople.length} employees</strong> mentioned:`);
+        html += miniTable(mentionedPeople, ['Name', 'Department', 'Role', 'Salary', 'City']);
+        html += p(`💰 Combined salary: <strong>$${total.toLocaleString()}</strong> | Average: <strong>$${avg.toLocaleString()}</strong>`);
+        return html;
+    }
+
+    // If single person mentioned but no specific handler matched, show profile
+    if (mentionedPeople.length === 1) {
+        const person = mentionedPeople[0];
+        let details = '<div style="margin:8px 0">';
+        columns.forEach(col => {
+            let val = person[col] ?? '';
+            if (col === 'Salary' && !isNaN(val)) val = '$' + Number(val).toLocaleString();
+            details += `<p style="margin:2px 0"><strong>${esc(col)}:</strong> ${esc(String(val))}</p>`;
+        });
+        details += '</div>';
+        return p(`👤 <strong>${esc(person['Name'])}</strong>`) + details;
+    }
+
     // === TOTAL SALARY (with optional filter) ===
-    if (match(q, ['total salary', 'sum salary', 'sum of salary', 'total of salary', 'combined salary', 'salary total', 'total salaries', 'sum of all salaries', 'total pay', 'payroll'])) {
+    if (mentionedPeople.length === 0 && match(q, ['total salary', 'sum salary', 'sum of salary', 'total of salary', 'combined salary', 'salary total', 'total salaries', 'sum of all salaries', 'total pay', 'payroll'])) {
         const dept = findValue(q, 'Department');
         const city = findValue(q, 'City');
         let subset = excelData;
