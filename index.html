@@ -89,6 +89,18 @@
         <!-- Chat Tab -->
         <section class="tab-content" id="chatTab">
             <div class="chat-container">
+                <!-- API Key Setup -->
+                <div class="api-key-bar" id="apiKeyBar">
+                    <div class="api-key-info">
+                        <span>🔑</span>
+                        <span id="apiKeyStatus">Enter your Gemini API key to enable AI</span>
+                    </div>
+                    <div class="api-key-input-group">
+                        <input type="password" id="apiKeyInput" placeholder="Paste your Gemini API key..."
+                            autocomplete="off">
+                        <button id="apiKeySaveBtn" onclick="saveApiKey()">Save</button>
+                    </div>
+                </div>
                 <div class="chat-messages" id="chatMessages">
                     <!-- Welcome message -->
                     <div class="message bot-message animate-in">
