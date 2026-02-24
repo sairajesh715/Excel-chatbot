@@ -135,7 +135,7 @@ function sendMessage() {
 }
 
 function askSuggestion(btn) {
-    document.getElementById('chatInput').value = btn.textContent.trim();
+    document.getElementById('chatInput').value = btn.textContent.replace(/\s+/g, ' ').trim();
     sendMessage();
 }
 
