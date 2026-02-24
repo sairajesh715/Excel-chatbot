@@ -775,31 +775,197 @@ function processQuery(query) {
         }
     }
 
-    // === GENERIC KEYWORD SEARCH (SMART FALLBACK) ===
-    const keywords = q.replace(/[?.,!'"]/g, '').split(/\s+/).filter(w => w.length > 2 && !['the', 'and', 'for', 'are', 'was', 'what', 'who', 'how', 'can', 'you', 'show', 'tell', 'give', 'get', 'from', 'with', 'this', 'that', 'have', 'has', 'does', 'will'].includes(w));
+    // ===================== SMART AUTO-DETECT (bare input) =====================
+    // If user just types a name, city, department, role, ID, email, year, etc.
 
-    if (keywords.length > 0) {
-        const matches = excelData.filter(row =>
-            keywords.some(kw => columns.some(col => String(row[col] || '').toLowerCase().includes(kw)))
-        );
-        if (matches.length > 0) {
-            const displayCols = matches.length <= 5 ? columns.slice(0, 7) : ['Name', 'Department', 'Role', 'Salary', 'City'];
-            return p(`🔍 Found <strong>${matches.length} result${matches.length > 1 ? 's' : ''}</strong> matching your query:`) +
-                miniTable(matches.slice(0, 15), displayCols);
+    // --- EMPLOYEE ID MATCH (e.g. "EMP001") ---
+    const idMatch = q.match(/^emp\s*0*(\d+)$/i);
+    if (idMatch) {
+        const emp = excelData.find(r => String(r['Employee ID'] || '').toLowerCase().replace(/\s/g, '') === q.replace(/\s/g, ''));
+        if (emp) {
+            let details = '<div style="margin:8px 0">';
+            columns.forEach(col => {
+                let val = emp[col] ?? '';
+                if (col === 'Salary' && !isNaN(val)) val = '$' + Number(val).toLocaleString();
+                details += `<p style="margin:2px 0"><strong>${esc(col)}:</strong> ${esc(String(val))}</p>`;
+            });
+            details += '</div>';
+            return p(`👤 <strong>${esc(emp['Name'])}</strong>`) + details;
+        }
+    }
+
+    // --- EMAIL MATCH (e.g. "guru.charan@company.com") ---
+    if (q.includes('@')) {
+        const emp = excelData.find(r => String(r['Email'] || '').toLowerCase().includes(q.trim()));
+        if (emp) {
+            let details = '<div style="margin:8px 0">';
+            columns.forEach(col => {
+                let val = emp[col] ?? '';
+                if (col === 'Salary' && !isNaN(val)) val = '$' + Number(val).toLocaleString();
+                details += `<p style="margin:2px 0"><strong>${esc(col)}:</strong> ${esc(String(val))}</p>`;
+            });
+            details += '</div>';
+            return p(`👤 <strong>${esc(emp['Name'])}</strong>`) + details;
+        }
+    }
+
+    // --- EXACT DEPARTMENT MATCH (e.g. just "Engineering" or "HR") ---
+    const exactDept = unique('Department').find(d => d.toLowerCase() === q.trim());
+    if (exactDept) {
+        const emps = filterBy('Department', exactDept);
+        const sals = emps.map(r => num(r, 'Salary')).filter(s => s > 0);
+        const total = sals.reduce((a, b) => a + b, 0);
+        const avg = sals.length ? Math.round(total / sals.length) : 0;
+        return p(`🏢 <strong>${exactDept}</strong> Department (${emps.length} employees)`) +
+            p(`💰 Total salary: <strong>$${total.toLocaleString()}</strong> | Average: <strong>$${avg.toLocaleString()}</strong>`) +
+            miniTable(emps, ['Name', 'Role', 'Salary', 'City', 'Experience (Years)']);
+    }
+
+    // --- EXACT CITY MATCH (e.g. just "Hyderabad") ---
+    const exactCity = unique('City').find(c => c.toLowerCase() === q.trim());
+    if (exactCity) {
+        const emps = filterBy('City', exactCity);
+        const sals = emps.map(r => num(r, 'Salary')).filter(s => s > 0);
+        const total = sals.reduce((a, b) => a + b, 0);
+        const avg = sals.length ? Math.round(total / sals.length) : 0;
+        return p(`📍 Employees in <strong>${exactCity}</strong> (${emps.length})`) +
+            p(`💰 Total salary: <strong>$${total.toLocaleString()}</strong> | Average: <strong>$${avg.toLocaleString()}</strong>`) +
+            miniTable(emps, ['Name', 'Department', 'Role', 'Salary', 'Experience (Years)']);
+    }
+
+    // --- EXACT ROLE MATCH (e.g. just "Developer" or "HR Manager") ---
+    const exactRole = unique('Role').find(r => r.toLowerCase() === q.trim() || q.trim().includes(r.toLowerCase()));
+    if (exactRole) {
+        const emps = excelData.filter(r => r['Role'] === exactRole);
+        return p(`💼 Employees with role "<strong>${exactRole}</strong>" (${emps.length})`) +
+            miniTable(emps, ['Name', 'Department', 'Salary', 'City', 'Experience (Years)']);
+    }
+
+    // --- YEAR MATCH (e.g. just "2023" or "2021") ---
+    const yearOnly = q.match(/^(20\d{2})$/);
+    if (yearOnly) {
+        const year = yearOnly[1];
+        const dateCol = columns.find(c => c.toLowerCase().includes('join') || c.toLowerCase().includes('date'));
+        if (dateCol) {
+            const emps = excelData.filter(r => String(r[dateCol] || '').includes(year));
+            if (emps.length > 0) {
+                return p(`📅 Employees who joined in <strong>${year}</strong> (${emps.length}):`) +
+                    miniTable(emps, ['Name', 'Department', 'Role', 'Salary', dateCol]);
+            }
+            return p(`No employees found who joined in ${year}.`);
+        }
+    }
+
+    // --- PURE NUMBER (e.g. just "80000" → who earns around that?) ---
+    const pureNum = q.match(/^\$?([\d,]+)$/);
+    if (pureNum) {
+        const target = parseInt(pureNum[1].replace(/,/g, ''));
+        if (target > 1000) {
+            // Salary range: show employees earning ±20% of this amount
+            const margin = target * 0.2;
+            const emps = excelData.filter(r => {
+                const s = num(r, 'Salary');
+                return s >= (target - margin) && s <= (target + margin);
+            });
+            const exact = excelData.filter(r => num(r, 'Salary') === target);
+            if (exact.length > 0) {
+                return p(`💰 <strong>${exact.length}</strong> employee(s) earning exactly <strong>$${target.toLocaleString()}</strong>:`) +
+                    miniTable(exact, ['Name', 'Department', 'Role', 'Salary', 'City']);
+            }
+            if (emps.length > 0) {
+                return p(`💰 <strong>${emps.length}</strong> employee(s) earning around <strong>$${target.toLocaleString()}</strong> (±20%):`) +
+                    miniTable(emps, ['Name', 'Department', 'Role', 'Salary', 'City']);
+            }
+        }
+        if (target <= 20) {
+            // Might be experience
+            const expCol = findExpCol();
+            if (expCol) {
+                const emps = excelData.filter(r => num(r, expCol) === target);
+                if (emps.length) {
+                    return p(`📈 Employees with <strong>${target} years</strong> of experience:`) +
+                        miniTable(emps, ['Name', 'Department', 'Role', 'Salary', expCol]);
+                }
+            }
+        }
+    }
+
+    // --- NAME-ONLY INPUT (just typing a person's name) ---
+    // This catches cases where findMentionedPeople didn't trigger earlier
+    if (mentionedPeople.length === 0) {
+        // Try a more fuzzy name search
+        const cleanQ = q.replace(/[?.,!'"]/g, '').trim();
+        const nameMatches = excelData.filter(r => {
+            const name = String(r['Name'] || '').toLowerCase();
+            // Full or partial match
+            return name.includes(cleanQ) || cleanQ.split(/\s+/).some(w => w.length >= 3 && name.includes(w));
+        });
+        if (nameMatches.length === 1) {
+            const person = nameMatches[0];
+            let details = '<div style="margin:8px 0">';
+            columns.forEach(col => {
+                let val = person[col] ?? '';
+                if (col === 'Salary' && !isNaN(val)) val = '$' + Number(val).toLocaleString();
+                details += `<p style="margin:2px 0"><strong>${esc(col)}:</strong> ${esc(String(val))}</p>`;
+            });
+            details += '</div>';
+            return p(`👤 <strong>${esc(person['Name'])}</strong>`) + details;
+        }
+        if (nameMatches.length > 1) {
+            return p(`👥 Found <strong>${nameMatches.length}</strong> matches for "${esc(cleanQ)}":`) +
+                miniTable(nameMatches, ['Name', 'Department', 'Role', 'Salary', 'City', 'Email']);
+        }
+    }
+
+    // --- PARTIAL MATCH ON ANY COLUMN VALUE ---
+    const cleanWords = q.replace(/[?.,!'"]/g, '').split(/\s+/).filter(w => w.length >= 2);
+    if (cleanWords.length > 0) {
+        // Try to match exact column values first (department, city, role as partial)
+        for (const col of ['Department', 'City', 'Role', 'Status']) {
+            const vals = unique(col);
+            for (const val of vals) {
+                if (cleanWords.some(w => val.toLowerCase().includes(w) && w.length >= 3)) {
+                    const emps = filterBy(col, val);
+                    if (emps.length > 0) {
+                        const sals = emps.map(r => num(r, 'Salary')).filter(s => s > 0);
+                        const total = sals.reduce((a, b) => a + b, 0);
+                        return p(`🔍 Found <strong>${emps.length}</strong> employees in <strong>${col}: ${val}</strong>`) +
+                            (sals.length ? p(`💰 Total salary: <strong>$${total.toLocaleString()}</strong>`) : '') +
+                            miniTable(emps, ['Name', 'Department', 'Role', 'Salary', 'City']);
+                    }
+                }
+            }
+        }
+
+        // Generic keyword search across all columns
+        const keywords = cleanWords.filter(w => w.length > 2 && !['the', 'and', 'for', 'are', 'was', 'what', 'who', 'how', 'can', 'you', 'show', 'tell', 'give', 'get', 'from', 'with', 'this', 'that', 'have', 'has', 'does', 'will', 'all', 'any'].includes(w));
+        if (keywords.length > 0) {
+            const matches = excelData.filter(row =>
+                keywords.some(kw => columns.some(col => String(row[col] || '').toLowerCase().includes(kw)))
+            );
+            if (matches.length > 0) {
+                const displayCols = matches.length <= 5 ? columns.slice(0, 8) : ['Name', 'Department', 'Role', 'Salary', 'City'];
+                return p(`🔍 Found <strong>${matches.length} result${matches.length > 1 ? 's' : ''}</strong> matching "${esc(query)}":`) +
+                    miniTable(matches.slice(0, 20), displayCols);
+            }
         }
     }
 
     // === NO MATCH ===
     return p(`🤔 I couldn't find results for "<em>${esc(query)}</em>".`) +
-        p('Try asking:') +
+        p('Try any of these:') +
         '<ul>' +
-        '<li>"Group by department" – see salary stats per department</li>' +
-        '<li>"Sort by salary descending" – order all employees</li>' +
-        '<li>"Top 5 earners" – highest paid employees</li>' +
+        '<li>Just type a <strong>name</strong> → "Guru Charan"</li>' +
+        '<li>Just type a <strong>city</strong> → "Hyderabad"</li>' +
+        '<li>Just type a <strong>department</strong> → "Engineering"</li>' +
+        '<li>Just type an <strong>employee ID</strong> → "EMP001"</li>' +
+        '<li>Just type a <strong>salary amount</strong> → "80000"</li>' +
+        '<li>Just type a <strong>year</strong> → "2023"</li>' +
+        '<li>"Group by department" – stats per department</li>' +
+        '<li>"Sort by salary desc" – salary ranking</li>' +
         '<li>"Where salary > 80000 and city = Hyderabad"</li>' +
-        '<li>"Sum of salary of Guru Charan and Sai Rajesh"</li>' +
-        '<li>"Distinct departments" – unique values</li>' +
-        '<li>"Summary" – full data overview</li>' +
+        '<li>"rajesh and charan total salary"</li>' +
+        '<li>"Summary" – full overview</li>' +
         '</ul>';
 }
 
